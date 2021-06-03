@@ -19,7 +19,7 @@ Arctic terns are one of very few species in the world to spend considerable part
 - [Noam Vogt-Vincent](https://www.earth.ox.ac.uk/people/noam-vogt-vincent/) *(Oxford)* :octocat: [nvogtvincent](https://github.com/nvogtvincent)
 - [Daniel Williams](https://emps.exeter.ac.uk/mathematics/staff/dw569) *(Exeter)* :octocat: [daw538](https://github.com/daw538)
 - [Ned Williams](https://emps.exeter.ac.uk/mathematics/staff/nw432) *(Exeter)* :octocat: [nedcw](https://github.com/nedcw)
-- Shannon Williams
+- [Shannon Williams](https://compass.blogs.bristol.ac.uk/students/shannon-williams/) *(Bristol)* :octocat: [shannon-wms](https://github.com/shannon-wms)
 - [Aleksandra Zaforemska](https://research.ncl.ac.uk/geospatial-systems/phdresearchers/profiles/aleksandrazaforemska.html) *(Newcastle)* :octocat: [alekszaf](https://github.com/alekszaf)
 
 ## What was done
