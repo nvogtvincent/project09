@@ -1,4 +1,4 @@
-
+![Cover image of Arctic Terns in flight](https://github.com/cmip6moap/project09/blob/main/arctic_tern_cover.png "Arctic Terns in flight")
 
 # Impacts of changing wind regimes and sea ice on the world's longest migrant
 
