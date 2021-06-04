@@ -1,3 +1,5 @@
+
+
 # Impacts of changing wind regimes and sea ice on the world's longest migrant
 
 Arctic terns are one of very few species in the world to spend considerable parts of time every year at both poles, migrating at least 90,000 km per year between the two,<sup>[1, 2]</sup> which is the longest recorded migration of any animal. They are particularly vulnerable to climate change, with a short window to breed in their arctic range during the boreal summer, their reliance on tailwinds to support both their south- and north- bound migrations,<sup>[3]</sup> and their use of sea ice to forage in the Southern Ocean during the austral summer. Using tracking data (from breeding arctic terns caught in Greenland<sup>[1]</sup> and Sweden<sup>[4]</sup>), and Iceland, we are interested in investigating how predicted changes over the next 100 years will impact the winds that migrating arctic terns rely on, and how the changing ice edge will affect their foraging during the non-breeding period.
@@ -24,15 +26,21 @@ Arctic terns are one of very few species in the world to spend considerable part
 
 ## What was done
 
+Our project split into three different groups to focus on different factors that may affect Arctic Terns:
+
+- Wind (Dan, Ned, Shannon) 
+- Sea Ice (Aleksandra, Isolde)
+- Productivity (Noam, Pearce)
+
 ### How we approached the problem and why
 
 [...]
 
 ### Data we used and how to obtain this
 
-* [...]
-* [...]
-* [...]
+We used data from the [Coupled Model Intercomparison Project Phase 6 (CMIP6)](http://www.wcrp-climate.org/wgcm-cmip/wgcm-cmip6) project to conduct our analysis. Experiments used included the core CMIP set of experiments, [DAMIP](http://damip.lbl.gov) (attribution of components of climate change) and [ScenarioMIP](https://www.cesm.ucar.edu/projects/CMIP6/ScenarioMIP/) (predictions for future climate change scenarios)
+
+The data used in our project can be downloaded directly from the CMIP 6 [data portal](https://esgf-node.llnl.gov/search/cmip6/), whilst the individual experiments and files used can be found in the iPython notebooks contained within this repository. Most of the analysis made use of the UKESM GCM.
 
 ### What we did during the hackathon
 
