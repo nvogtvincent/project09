@@ -29,17 +29,18 @@ param = {'model_name'        : 'UKESM1-0-LL',
          'release_start_day' : 80,
          'release_end_day'   : 100,
          'number_of_releases': 3,
-         'terns_per_release' : 5000,
+         'terns_per_release' : 5,
          'release_lat'       : -70.,
          'release_lon_range' : [-50., -10.],       # [min, max]
          'target_lat'        : 60.,
          'target_lon'        : -20.,
          'airspeed'          : 10.,                # (m s-1)
          'fly_frac'          : 0.6,                # Fraction of day in flight
-         'var_name'          : ['uas', 'vas'],     # [zonal, meridional]
          'mode'              : 'traj'   ,          # See notes below
          'parcels_dt'        : timedelta(hours=1), # Parcels solver dt
-         'out_dt'            : timedelta(days=1)   # Only used if mode == traj
+         'out_dt'            : timedelta(days=1),   # Only used if mode == traj
+         'var_name'          : ['uas', 'vas'],     # [zonal, meridional]
+         'coordinate_name'   : ['lon', 'lat'],     # [lon, lat]
          }
 
 # MODE NOTES:
@@ -108,6 +109,7 @@ with Dataset(fh['u_hist'], mode='r') as nc:
                                    param['Ystart']['hist'] + 1)}
     param['run_time']['hist'] *= 3600*24*360
     param['run_time']['hist'] -= 2*param['time_offset']
+    param['run_time']['hist'] = timedelta(seconds=param['run_time']['hist'])
 
 with Dataset(fh['u_scen'][0], mode='r') as nc:
     param['Ystart']['scen'] = num2date(nc.variables['time'][0],
@@ -122,422 +124,169 @@ with Dataset(fh['u_scen'][0], mode='r') as nc:
                                  param['Ystart']['scen'] + 1)
     param['run_time']['scen'] *= 3600*24*360
     param['run_time']['scen'] -= 2*param['time_offset']
+    param['run_time']['scen'] = timedelta(seconds=param['run_time']['scen'])
 
 release = tm.prepare_release(release, param)
 
 # GENERATE THE FLYING VECTOR FIELD
+fh['fly_field'] = dirs['model'] + 'fly_field.nc'
 fly_field = tm.genTargetField(param['target_lon'],
                               param['target_lat'],
-                              param['airspeed'])
-
-
-
-
-
+                              param['airspeed'],
+                              fh)
 
 ##############################################################################
-# PARAMETERS                                                                 #
+# TERN KERNELS                                                               #
 ##############################################################################
 
-# Release timing
-Years  = [1993, 1993]  # Minimum and maximum release year
-Months = [1, 1]        # Minimum and maximum release month
-RPM    = 1             # Particle releases per calender month
-
-# Release locations
-CountryIDs = [690]     # ISO country codes for starting locations
-PN         = 212       # Sqrt of number of particles per cell (must be even!)
-
-# Runtime parameters
-sim_T      = timedelta(days=10)
-sim_dt     = timedelta(minutes=-5)
-out_dt     = timedelta(hours=1)
-
-# Debug/Checking tools
-debug      = False
-viz_lim    = {'lonW': 46,
-              'lonE': 47,
-              'latS': -10,
-              'latN': -9}
-
-##############################################################################
-# SET UP PARTICLE RELEASE                                                    #
-##############################################################################
-
-# Run the mask script if necessary (but plastics must be updated manually)
-update_mask = False
-if update_mask:
-    masks = mdm.cmems_globproc(fh['ocean'], fh['grid'], add_seychelles=True)
-
-# Calculate the starting time (t0) for the model data
-with Dataset(fh['ocean'][0], 'r') as nc:
-    t0 = nc.variables['time']
-    t0 = num2date(t0[0], t0.units)
-
-t0 = (t0 - datetime(year=Years[0], month=Months[0], day=1)).total_seconds()
-
-# Calculate the starting times for particle releases
-rtime = mdm.release_time(Years, Months, RPM, int(t0), mode='end')
-
-# Calculate the starting locations for particle releases
-pos0 = mdm.release_loc(fh, CountryIDs, PN)
-
-# Add the times
-pos0 = mdm.add_times(pos0, rtime)
-
-# Save the particle IDs and ISOs to a separate netcdf to avoid having to use
-# the extremely slow initial interpolation in parcels
-with Dataset(fh['sid'], mode='w') as nc:
-    nc.createDimension('traj', len(pos0['id']))
-
-    nc.createVariable('sid', 'i4', ('traj'), zlib=True)
-    nc.variables['sid'].long_name = 'particle_source_id_on_psi_grid'
-    nc.variables['sid'].units = 'no_units'
-    nc.variables['sid'].standard_name = 'source_id'
-    nc.variables['sid'][:] = pos0['id']
-
-    nc.createVariable('iso', 'i2', ('traj'), zlib=True)
-    nc.variables['iso'].long_name = 'particle_source_ISO_3166-1_code_on_psi_grid'
-    nc.variables['iso'].units = 'no_units'
-    nc.variables['iso'].standard_name = 'source_iso'
-    nc.variables['iso'][:] = pos0['iso']
-
-##############################################################################
-# SET UP FIELDSETS                                                           #
-##############################################################################
-
-# Chunksize for parallel execution
-cs_OCEAN = {'time': ('time', 2),
-            'lat': ('latitude', 512),
-            'lon': ('longitude', 512)}
-
-cs_WAVE  = {'time': ('time', 2),
-            'lat': ('latitude', 512),
-            'lon': ('longitude', 512)}
-
-# OCEAN (CMEMS GLORYS12V1)
-filenames = fh['ocean']
-
-variables = {'U': 'uo',
-              'V': 'vo'}
-
-dimensions = {'U': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'},
-              'V': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'}}
-
-fieldset_ocean = FieldSet.from_netcdf(filenames, variables, dimensions,
-                                      chunksize=cs_OCEAN)
-
-# WAVE (STOKES FROM WAVERYS W/ GLORYS12V1)
-filenames = fh['wave']
-
-variables = {'U': 'VSDX',
-             'V': 'VSDY'}
-
-dimensions = {'U': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'},
-              'V': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'}}
-
-fieldset_wave = FieldSet.from_netcdf(filenames, variables, dimensions,
-                                     chunksize=cs_WAVE)
-
-fieldset = FieldSet(U=fieldset_ocean.U+fieldset_wave.U,
-                    V=fieldset_ocean.V+fieldset_wave.V)
-
-
-# ADD THE LSM, ID, CDIST, AND CNORM FIELDS
-lsm   = Field.from_netcdf(fh['grid'],
-                          variable='lsm_psi',
-                          dimensions={'lon': 'lon_psi',
-                                      'lat': 'lat_psi'},
-                          interp_method='nearest',
-                          allow_time_extrapolation=True)
-
-id_psi = Field.from_netcdf(fh['grid'],
-                           variable='id_psi',
-                           dimensions={'lon': 'lon_psi',
-                                       'lat': 'lat_psi'},
-                           interp_method='nearest',
-                           allow_time_extrapolation=True)
-
-cdist = Field.from_netcdf(fh['grid'],
-                          variable='cdist_rho',
-                          dimensions={'lon': 'lon_rho',
-                                      'lat': 'lat_rho'},
-                          interp_method='linear',
-                          allow_time_extrapolation=True)
-
-cnormx = Field.from_netcdf(fh['grid'],
-                           variable='cnormx_rho',
-                           dimensions={'lon': 'lon_rho',
-                                       'lat': 'lat_rho'},
-                           interp_method='linear',
-                           mesh='spherical',
-                           allow_time_extrapolation=True)
-
-cnormy = Field.from_netcdf(fh['grid'],
-                           variable='cnormy_rho',
-                           dimensions={'lon': 'lon_rho',
-                                       'lat': 'lat_rho'},
-                           interp_method='linear',
-                           mesh='spherical',
-                           allow_time_extrapolation=True)
-
-fieldset.add_field(cdist)
-fieldset.add_field(id_psi)
-fieldset.add_field(cnormx)
-fieldset.add_field(cnormy)
-fieldset.add_field(lsm)
-
-fieldset.cnormx_rho.units = GeographicPolar()
-fieldset.cnormy_rho.units = Geographic()
-
-# ADD THE PERIODIC BOUNDARY
-fieldset.add_constant('halo_west', -180.)
-fieldset.add_constant('halo_east', 180.)
-fieldset.add_periodic_halo(zonal=True)
-
-##############################################################################
-# KERNELS                                                                    #
-##############################################################################
-
-class debris(JITParticle):
-    # Land-sea mask (if particle has beached)
-    lsm = Variable('lsm',
-                   dtype=np.int8,
-                   initial=0,
-                   to_write=False)
-
-    # Source ID
-    sid = Variable('sid',
-                   dtype=np.int32,
-                   initial=fieldset.id_psi,
-                   to_write='once')
-
-    # Particle distance from land
-    cd = Variable('cd',
-                  dtype=np.float32,
-                  initial=0.,
-                  to_write=False)
-
-    # Time at sea (ocean time)
-    ot = Variable('ot',
-                  dtype=np.int32,
-                  initial=0,
-                  to_write=False)
-
-    # Velocity away from coast (to prevent beaching)
-    uc = Variable('uc',
-                  dtype=np.float32,
-                  initial=0.,
-                  to_write=False)
-
-    vc = Variable('vc',
-                  dtype=np.float32,
-                  initial=0.,
-                  to_write=False)
-
-    # # Advection velocity (ocean + wave)
-    uo = Variable('uo',
-                  dtype=np.float32,
-                  initial=0.,
-                  to_write=False)
-
-    vo = Variable('vo',
-                  dtype=np.float32,
-                  initial=0.,
-                  to_write=False)
-
-def beach(particle, fieldset, time):
-    #  Recovery kernel to delete a particle if it is beached
-    particle.lsm = fieldset.lsm_psi[time,
-                                    particle.depth,
-                                    particle.lat,
-                                    particle.lon]
-
-    if particle.lsm == 1:
-        particle.delete()
-
-def antibeach(particle, fieldset, time):
-    #  Kernel to repel particles from the coast
-    particle.cd = fieldset.cdist_rho[time,
-                                     particle.depth,
-                                     particle.lat,
-                                     particle.lon]
-
-    if particle.cd < 0.5:
-
-        particle.uc = fieldset.cnormx_rho[time,
-                                          particle.depth,
-                                          particle.lat,
-                                          particle.lon]
-        particle.vc = fieldset.cnormy_rho[time,
-                                          particle.depth,
-                                          particle.lat,
-                                          particle.lon]
-
-        particle.uc *= (particle.cd - 0.5)**2
-        particle.vc *= (particle.cd - 0.5)**2
-
-        particle.lon += 1*particle.uc*particle.dt
-        particle.lat += 1*particle.vc*particle.dt
+class arcticTern(JITParticle):
+    flight_time = Variable('flight_time', dtype=np.float32, initial=0.)
+    release_time = Variable('release_time', dtype=np.int32, initial=0.)
+    time_of_day = Variable('time_of_day', dtype=np.float32, initial=0.,
+                           to_write=False)
 
 def deleteParticle(particle, fieldset, time):
     #  Recovery kernel to delete a particle if it leaves the domain
-    #  (unlikely but possible at Antarctica)
     particle.delete()
 
-def periodicBC(particle, fieldset, time):
-    # Move the particle across the periodic boundary
-    if particle.lon < fieldset.halo_west:
-        particle.lon += fieldset.halo_east - fieldset.halo_west
-    elif particle.lon > fieldset.halo_east:
-        particle.lon -= fieldset.halo_east - fieldset.halo_west
+def fly(particle, fieldset, time):
+    # Find the year at the start
+    if particle.flight_time == 0.:
+        particle.release_time = time
+
+    # Remove the tern if they reach the end latitude
+    if particle.lat > fieldset.target_lat:
+        particle.delete()
+
+    if particle.time_of_day > fieldset.night_time:
+        # Assume birds are static for a certain proportion of the day
+        ustatic = fieldset.U[time, particle.depth, particle.lat, particle.lon]
+        vstatic = fieldset.V[time, particle.depth, particle.lat, particle.lon]
+        particle.lon -= ustatic * particle.dt
+        particle.lat -= vstatic * particle.dt
+
+    # if particle.time_of_day < fieldset.night_time:
+    #     # Assume birds are static for a certain proportion of the day
+    #     ufly = fieldset.u_fly[time, particle.depth, particle.lat, particle.lon]
+    #     vfly = fieldset.v_fly[time, particle.depth, particle.lat, particle.lon]
+    #     particle.lon += ufly * particle.dt
+    #     particle.lat += vfly * particle.dt
+    # else:
+    #     ustatic = fieldset.U[time, particle.depth, particle.lat, particle.lon]
+    #     vstatic = fieldset.V[time, particle.depth, particle.lat, particle.lon]
+    #     particle.lon -= ustatic * particle.dt
+    #     particle.lat -= vstatic * particle.dt
+
+    # Update the particle age
+    particle.flight_time += particle.dt
+    particle.time_of_day += particle.dt
+    if particle.time_of_day >= 86400.:
+        particle.time_of_day = 0
 
 ##############################################################################
-# INITIALISE SIMULATION AND RUN                                              #
-##############################################################################
-pset = ParticleSet.from_list(fieldset=fieldset,
-                             pclass=debris,
-                             lon  = pos0['lon'],
-                             lat  = pos0['lat'],
-                             time = pos0['time'])
-print(str(len(pos0['lon'])) + ' particles released!')
-
-traj = pset.ParticleFile(name=fh['traj'],
-                         outputdt=out_dt)
-
-kernels = (pset.Kernel(AdvectionRK4) +
-           pset.Kernel(antibeach) +
-           pset.Kernel(beach) +
-           pset.Kernel(periodicBC))
-
-pset.execute(kernels,
-             runtime=sim_T,
-             dt = timedelta(minutes=-5),
-             recovery={ErrorCode.ErrorOutOfBounds: deleteParticle},
-             output_file=traj)
-
-traj.export()
-
-##############################################################################
-# VISUALISE IF REQUESTED                                                     #
+# RELEASE THE TERNS                                                          #
 ##############################################################################
 
+for i in range(param['n_scen'] + 1):
+    # Create fieldset
+    if i == 0:
+        print('Setting up historical simulation...')
+        filenames = {'U': {'lon': fh['u_hist'], 'lat': fh['u_hist'],
+                           'time': fh['u_hist'], 'data': fh['u_hist']},
+                     'V': {'lon': fh['v_hist'], 'lat': fh['v_hist'],
+                           'time': fh['v_hist'], 'data': fh['v_hist']}}
+    else:
+        print('Setting up ' + param['scenarios'][i-1] + ' simulation...')
+        filenames = {'U': {'lon': fh['u_scen'][i-1], 'lat': fh['u_scen'][i-1],
+                           'time': fh['u_scen'][i-1], 'data': fh['u_scen'][i-1]},
+                     'V': {'lon': fh['u_scen'][i-1], 'lat': fh['u_scen'][i-1],
+                           'time': fh['u_scen'][i-1], 'data': fh['u_scen'][i-1]}}
 
-viz_lim    = {'lonW': 46,
-              'lonE': 47,
-              'latS': -10,
-              'latN': -9}
+    print('')
 
-if debug:
-    if not update_mask:
-        masks = mdm.cmems_globproc(fh['ocean'],
-                                   fh['grid'],
-                                   add_seychelles=True)
+    variables = {'U': param['var_name'][0],
+                 'V': param['var_name'][1]}
 
-    lat_psi = masks['lat_psi']
-    lon_psi = masks['lon_psi']
-    lat_rho = masks['lat_rho']
-    lon_rho = masks['lon_rho']
+    dimensions = {'U': {'lon': param['coordinate_name'][0],
+                        'lat': param['coordinate_name'][1],
+                        'time': 'time'},
+                  'V': {'lon': param['coordinate_name'][0],
+                        'lat': param['coordinate_name'][1],
+                        'time': 'time'}}
 
-    lsm_psi     = masks['lsm_psi']
-    lsm_rho     = masks['lsm_rho']
-    coast_psi   = masks['coast_psi']
+    wind_fieldset = FieldSet.from_netcdf(filenames,
+                                         variables,
+                                         dimensions)
 
-    cnormx_rho  = masks['cnormx_rho']
-    cnormy_rho  = masks['cnormy_rho']
+    flight_fieldset = FieldSet.from_data(data = {'U': fly_field['u'],
+                                                 'V': fly_field['v']},
+                                         dimensions = {'lon': fly_field['lon'],
+                                                       'lat': fly_field['lat']})
 
-    # Calculate grid indices for graphing
-    jmin_psi = np.searchsorted(lon_psi, viz_lim['lonW']) - 1
-    if jmin_psi < 0:
-        jmin_psi = 0
-    jmin_rho = jmin_psi
-    jmax_psi = np.searchsorted(lon_psi, viz_lim['lonE'])
-    jmax_rho = jmax_psi + 1
+    fieldset = FieldSet(U=wind_fieldset.U+flight_fieldset.U,
+                        V=wind_fieldset.V+flight_fieldset.V)
 
-    imin_psi = np.searchsorted(lat_psi, viz_lim['latS']) - 1
-    imin_rho = imin_psi
-    imax_psi = np.searchsorted(lat_psi, viz_lim['latN'])
-    imax_rho = imax_psi + 1
+    # Add constants
+    fieldset.add_constant('target_lat', param['target_lat'])
+    fieldset.add_constant('night_time', 86400.*param['fly_frac'])
 
-    disp_lon_rho = lon_rho[jmin_rho:jmax_rho]
-    disp_lat_rho = lat_rho[imin_rho:imax_rho]
+    # Create particleset
+    if i == 0:
+        pset = ParticleSet.from_list(fieldset=fieldset,
+                                     pclass=arcticTern,
+                                     lon = release['lon']['hist'],
+                                     lat = release['lat']['hist'],
+                                     time = release['time']['hist'])
+        traj_file = fh['traj_hist']
+    else:
+        pset = ParticleSet.from_list(fieldset=fieldset,
+                                     pclass=arcticTern,
+                                     lon = release['lon']['scen'][i-1],
+                                     lat = release['lat']['scen'][i-1],
+                                     time = release['time']['scen'][i-1])
+        traj_file = fh['traj_scen'][i-1]
 
-    disp_lon_psi = lon_psi[jmin_psi:jmax_psi]
-    disp_lat_psi = lat_psi[imin_psi:imax_psi]
+    if param['mode'] == 'traj':
+        traj_file = pset.ParticleFile(name=traj_file,
+                                      outputdt=param['out_dt'],
+                                      write_ondelete=False)
 
-    disp_lsm_psi   = lsm_psi[imin_psi:imax_psi, jmin_psi:jmax_psi]
-    disp_lsm_rho   = lsm_rho[imin_rho:imax_rho, jmin_rho:jmax_rho]
+    elif param['mode'] == 'time':
+        traj_file = pset.ParticleFile(name=traj_file,
+                                      write_ondelete=True)
+    else:
+        raise NotImplementedError('Mode not understood!')
 
-    disp_coast_psi = coast_psi[imin_psi:imax_psi, jmin_psi:jmax_psi]
+    # Run the simulation
+    print('Set-up complete!')
+    print('Releasing the birds!')
+    if i == 0:
+        pset.execute((pset.Kernel(AdvectionRK4) +
+                      pset.Kernel(fly)),
+                     runtime=param['run_time']['hist'],
+                     dt = param['parcels_dt'],
+                     recovery={ErrorCode.ErrorOutOfBounds: deleteParticle},
+                     output_file=traj_file)
+    else:
+        pset.execute((pset.Kernel(AdvectionRK4) +
+                      pset.Kernel(fly)),
+                     runtime=param['run_time']['scen'][i-1],
+                     dt = param['parcels_dt'],
+                     recovery={ErrorCode.ErrorOutOfBounds: deleteParticle},
+                     output_file=traj_file)
 
-    with Dataset(fh['ocean'], mode='r') as nc:
-        disp_u_rho   = nc.variables['uo'][0, 0,
-                                          imin_rho:imax_rho,
-                                          jmin_rho:jmax_rho]
+    print('')
+    print('Simulation complete!')
+    print('Exporting netcdf...')
+    traj_file.export()
 
-        disp_v_rho   = nc.variables['vo'][0, 0,
-                                          imin_rho:imax_rho,
-                                          jmin_rho:jmax_rho]
+    print('Export complete!')
+    print('')
 
-    cnormx   = cnormx_rho[imin_rho:imax_rho,jmin_rho:jmax_rho]
-    cnormy   = cnormy_rho[imin_rho:imax_rho,jmin_rho:jmax_rho]
+    if i < param['n_scen']:
+        print('Moving to the next simulation...')
+        print('')
+    else:
+        print('Simulations complete!')
+        print('The terns will miss you!')
 
-    # Plot the map
-    f, ax = plt.subplots(1, 1, figsize=(10, 10))
-
-    ax.set_xlim(viz_lim['lonW'], viz_lim['lonE'])
-    ax.set_ylim(viz_lim['latS'], viz_lim['latN'])
-
-    # Plot the rho grid
-    for i in range(len(disp_lat_rho)):
-        ax.plot([viz_lim['lonW'], viz_lim['lonE']],
-                [disp_lat_rho[i], disp_lat_rho[i]],
-                'k--', linewidth=0.5)
-
-    for j in range(len(disp_lon_rho)):
-        ax.plot([disp_lon_rho[j], disp_lon_rho[j]],
-                [viz_lim['lonW'], viz_lim['lonE']],
-                'k--', linewidth=0.5)
-
-    # Plot the lsm_psi mask
-    disp_lon_rho_, disp_lat_rho_ = np.meshgrid(disp_lon_rho, disp_lat_rho)
-    disp_lon_psi_, disp_lat_psi_ = np.meshgrid(disp_lon_psi, disp_lat_psi)
-
-    ax.pcolormesh(disp_lon_rho, disp_lat_rho, disp_lsm_psi, cmap=cm.topo,
-                  vmin=-0.5, vmax=1.5)
-
-    # Plot the coast_psi mask
-    ax.pcolormesh(disp_lon_rho, disp_lat_rho,
-                  np.ma.masked_values(disp_coast_psi, 0), cmap=cm.topo,
-                  vmin=0, vmax=3)
-
-    # Plot the lsm_rho nodes
-    ax.scatter(disp_lon_rho_, disp_lat_rho_, c=disp_lsm_rho, s=10, marker='o',
-               cmap=cm.gray_r)
-
-    # Plot the velocity field and BCs
-    ax.quiver(disp_lon_rho, disp_lat_rho, disp_u_rho, disp_v_rho)
-    ax.quiver(disp_lon_rho, disp_lat_rho, cnormx, cnormy, units='inches', scale=3, color='w')
-
-    # Load the trajectories
-    with Dataset(fh['traj'], mode='r') as nc:
-        plat  = nc.variables['lat'][:]
-        plon  = nc.variables['lon'][:]
-
-    pnum = np.shape(plat)[0]
-    pt   = np.shape(plat)[1]
-
-    for particle in range(pnum):
-        # if plon[particle, 0] == plon[particle, 1]:
-        #     ax.scatter(plon[particle, 0], plat[particle, 0], c='r', s=15, marker='o')
-        # else:
-        #     ax.scatter(plon[particle, 0], plat[particle, 0], c='b', s=15, marker='o')
-        ax.plot(plon[particle, :], plat[particle, :], 'w-', linewidth=0.5)
-        # ax.scatter(plon[particle, :], plat[particle, :],
-        #            c = pstate[particle, :],
-        #            cmap = cm.gray_r,
-        #            s = 10,
-        #            marker = 's')
-
-    # Save
-    plt.savefig(dirs['script'] + '/test.png', dpi=300)
