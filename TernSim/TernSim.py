@@ -191,16 +191,12 @@ for i in range(param['n_scen'] + 1):
     # Create fieldset
     if i == 0:
         print('Setting up historical simulation...')
-        filenames = {'U': {'lon': fh['u_hist'], 'lat': fh['u_hist'],
-                           'time': fh['u_hist'], 'data': fh['u_hist']},
-                     'V': {'lon': fh['v_hist'], 'lat': fh['v_hist'],
-                           'time': fh['v_hist'], 'data': fh['v_hist']}}
+        filenames = {'U': fh['u_hist'],
+                     'V': fh['v_hist']}
     else:
         print('Setting up ' + param['scenarios'][i-1] + ' simulation...')
-        filenames = {'U': {'lon': fh['u_scen'][i-1], 'lat': fh['u_scen'][i-1],
-                           'time': fh['u_scen'][i-1], 'data': fh['u_scen'][i-1]},
-                     'V': {'lon': fh['u_scen'][i-1], 'lat': fh['u_scen'][i-1],
-                           'time': fh['u_scen'][i-1], 'data': fh['u_scen'][i-1]}}
+        filenames = {'U': fh['u_hist'][i-1],
+                     'V': fh['v_hist'][i-1]}
 
     print('')
 
