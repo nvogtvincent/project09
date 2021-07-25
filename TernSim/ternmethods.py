@@ -149,19 +149,3 @@ def genTargetField(end_lon, end_lat, speed, fh):
         print('')
 
     return fly_field
-
-
-
-
-
-# def starting_time(pos_array, start_day, nyears):
-#     npart = np.shape(pos_array)[0]
-#     pos = np.zeros((npart * nyears, 3))
-
-#     for year in range(nyears):
-#         day = (360.*year) + start_day
-#         sec = day*86400.
-#         pos[year*npart:(year+1)*npart, :2] = pos_array
-#         pos[year*npart:(year+1)*npart, 2] = sec
-
-#     return pos

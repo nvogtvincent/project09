@@ -26,6 +26,7 @@ dirs  = {'script': os.path.dirname(os.path.realpath(__file__)),
 param = {'model_name'        : 'UKESM1-0-LL',
          'scenarios'         : ['SSP245',
                                 'SSP585'],
+
          'release_start_day' : 80,
          'release_end_day'   : 100,
          'number_of_releases': 3,
@@ -38,9 +39,12 @@ param = {'model_name'        : 'UKESM1-0-LL',
          'fly_frac'          : 0.6,                # Fraction of day in flight
          'mode'              : 'traj'   ,          # See notes below
          'parcels_dt'        : timedelta(hours=1), # Parcels solver dt
-         'out_dt'            : timedelta(days=1),   # Only used if mode == traj
+         'out_dt'            : timedelta(days=1),  # Only used if mode == traj
          'var_name'          : ['uas', 'vas'],     # [zonal, meridional]
          'coordinate_name'   : ['lon', 'lat'],     # [lon, lat]
+
+         'debug'             : False,              # Toggle to skip simulations
+         'first_sim'         : 1                   # Only used if debug == True
          }
 
 # MODE NOTES:
@@ -108,7 +112,7 @@ with Dataset(fh['u_hist'], mode='r') as nc:
     param['run_time'] = {'hist' : (param['Yend']['hist'] -
                                    param['Ystart']['hist'] + 1)}
     param['run_time']['hist'] *= 3600*24*360
-    param['run_time']['hist'] -= 2*param['time_offset']
+    param['run_time']['hist'] -= 4*param['time_offset']
     param['run_time']['hist'] = timedelta(seconds=param['run_time']['hist'])
 
 with Dataset(fh['u_scen'][0], mode='r') as nc:
@@ -123,7 +127,7 @@ with Dataset(fh['u_scen'][0], mode='r') as nc:
     param['run_time']['scen'] = (param['Yend']['scen'] -
                                  param['Ystart']['scen'] + 1)
     param['run_time']['scen'] *= 3600*24*360
-    param['run_time']['scen'] -= 2*param['time_offset']
+    param['run_time']['scen'] -= 4*param['time_offset']
     param['run_time']['scen'] = timedelta(seconds=param['run_time']['scen'])
 
 release = tm.prepare_release(release, param)
@@ -165,18 +169,6 @@ def fly(particle, fieldset, time):
         particle.lon -= ustatic * particle.dt
         particle.lat -= vstatic * particle.dt
 
-    # if particle.time_of_day < fieldset.night_time:
-    #     # Assume birds are static for a certain proportion of the day
-    #     ufly = fieldset.u_fly[time, particle.depth, particle.lat, particle.lon]
-    #     vfly = fieldset.v_fly[time, particle.depth, particle.lat, particle.lon]
-    #     particle.lon += ufly * particle.dt
-    #     particle.lat += vfly * particle.dt
-    # else:
-    #     ustatic = fieldset.U[time, particle.depth, particle.lat, particle.lon]
-    #     vstatic = fieldset.V[time, particle.depth, particle.lat, particle.lon]
-    #     particle.lon -= ustatic * particle.dt
-    #     particle.lat -= vstatic * particle.dt
-
     # Update the particle age
     particle.flight_time += particle.dt
     particle.time_of_day += particle.dt
@@ -187,7 +179,10 @@ def fly(particle, fieldset, time):
 # RELEASE THE TERNS                                                          #
 ##############################################################################
 
-for i in range(param['n_scen'] + 1):
+if not param['debug']:
+    param['first_sim'] = 0  # Set first simulation to default of debug = False
+
+for i in range(param['first_sim'], param['n_scen'] + 1):
     # Create fieldset
     if i == 0:
         print('Setting up historical simulation...')
@@ -195,8 +190,8 @@ for i in range(param['n_scen'] + 1):
                      'V': fh['v_hist']}
     else:
         print('Setting up ' + param['scenarios'][i-1] + ' simulation...')
-        filenames = {'U': fh['u_hist'][i-1],
-                     'V': fh['v_hist'][i-1]}
+        filenames = {'U': fh['u_scen'][i-1],
+                     'V': fh['v_scen'][i-1]}
 
     print('')
 
@@ -237,9 +232,9 @@ for i in range(param['n_scen'] + 1):
     else:
         pset = ParticleSet.from_list(fieldset=fieldset,
                                      pclass=arcticTern,
-                                     lon = release['lon']['scen'][i-1],
-                                     lat = release['lat']['scen'][i-1],
-                                     time = release['time']['scen'][i-1])
+                                     lon = release['lon']['scen'],
+                                     lat = release['lat']['scen'],
+                                     time = release['time']['scen'])
         traj_file = fh['traj_scen'][i-1]
 
     if param['mode'] == 'traj':
@@ -266,7 +261,7 @@ for i in range(param['n_scen'] + 1):
     else:
         pset.execute((pset.Kernel(AdvectionRK4) +
                       pset.Kernel(fly)),
-                     runtime=param['run_time']['scen'][i-1],
+                     runtime=param['run_time']['scen'],
                      dt = param['parcels_dt'],
                      recovery={ErrorCode.ErrorOutOfBounds: deleteParticle},
                      output_file=traj_file)
