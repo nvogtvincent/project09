@@ -86,7 +86,7 @@ def genTargetField(end_lon, end_lat, speed, fh):
                          'lat' : np.array(nc.variables['lat'][:])}
     else:
         print('Calculating tern velocity vectors...')
-        target_lon = np.linspace(0.5, 359.5, num=360)
+        target_lon = np.linspace(-179.5, 179.5, num=360)
         target_lat = np.linspace(-89.5, 89.5, num=180)
         target_lon, target_lat = np.meshgrid(target_lon, target_lat)
         u = np.zeros_like(target_lon)

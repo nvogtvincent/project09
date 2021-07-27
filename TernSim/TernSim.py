@@ -8,10 +8,7 @@ an airspeed towards a destination location.
 import ternmethods as tm
 import numpy as np
 import os
-import matplotlib.pyplot as plt
-import cmocean.cm as cm
-from parcels import (Field, FieldSet, ParticleSet, JITParticle, AdvectionRK4,
-                     ErrorCode, Geographic, GeographicPolar, Variable)
+from parcels import (FieldSet, ParticleSet, JITParticle, ErrorCode, Variable)
 from netCDF4 import Dataset, num2date
 from datetime import timedelta, datetime
 
@@ -39,7 +36,7 @@ param = {'model_name'        : 'UKESM1-0-LL',
          'fly_frac'          : 0.6,                # Fraction of day in flight
          'mode'              : 'traj'   ,          # See notes below
          'parcels_dt'        : timedelta(hours=1), # Parcels solver dt
-         'out_dt'            : timedelta(days=1),  # Only used if mode == traj
+         'out_dt'            : timedelta(hours=1),  # Only used if mode == traj
          'var_name'          : ['uas', 'vas'],     # [zonal, meridional]
          'coordinate_name'   : ['lon', 'lat'],     # [lon, lat]
 
@@ -143,17 +140,17 @@ fly_field = tm.genTargetField(param['target_lon'],
 # TERN KERNELS                                                               #
 ##############################################################################
 
-class arcticTern(JITParticle):
+class ArcticTern(JITParticle):
     flight_time = Variable('flight_time', dtype=np.float32, initial=0.)
     release_time = Variable('release_time', dtype=np.int32, initial=0.)
     time_of_day = Variable('time_of_day', dtype=np.float32, initial=0.,
                            to_write=False)
 
-def deleteParticle(particle, fieldset, time):
+def DeleteParticle(particle, fieldset, time):
     #  Recovery kernel to delete a particle if it leaves the domain
     particle.delete()
 
-def fly(particle, fieldset, time):
+def TernTools(particle, fieldset, time):
     # Find the year at the start
     if particle.flight_time == 0.:
         particle.release_time = time
@@ -162,18 +159,26 @@ def fly(particle, fieldset, time):
     if particle.lat > fieldset.target_lat:
         particle.delete()
 
-    if particle.time_of_day > fieldset.night_time:
-        # Assume birds are static for a certain proportion of the day
-        ustatic = fieldset.U[time, particle.depth, particle.lat, particle.lon]
-        vstatic = fieldset.V[time, particle.depth, particle.lat, particle.lon]
-        particle.lon -= ustatic * particle.dt
-        particle.lat -= vstatic * particle.dt
-
     # Update the particle age
     particle.flight_time += particle.dt
     particle.time_of_day += particle.dt
     if particle.time_of_day >= 86400.:
         particle.time_of_day = 0
+
+def AdvectionRK4Tern(particle, fieldset, time):
+    # Modified RK4 kernel to only activate during active hours
+    # Modified from the parcels.kernels.advection module
+    if particle.time_of_day < fieldset.night_time:
+        (u1, v1) = fieldset.UV[particle]
+        lon1, lat1 = (particle.lon + u1*.5*particle.dt, particle.lat + v1*.5*particle.dt)
+        (u2, v2) = fieldset.UV[time + .5 * particle.dt, particle.depth, lat1, lon1, particle]
+        lon2, lat2 = (particle.lon + u2*.5*particle.dt, particle.lat + v2*.5*particle.dt)
+        (u3, v3) = fieldset.UV[time + .5 * particle.dt, particle.depth, lat2, lon2, particle]
+        lon3, lat3 = (particle.lon + u3*particle.dt, particle.lat + v3*particle.dt)
+        (u4, v4) = fieldset.UV[time + particle.dt, particle.depth, lat3, lon3, particle]
+        particle.lon += (u1 + 2*u2 + 2*u3 + u4) / 6. * particle.dt
+        particle.lat += (v1 + 2*v2 + 2*v3 + v4) / 6. * particle.dt
+
 
 ##############################################################################
 # RELEASE THE TERNS                                                          #
@@ -210,9 +215,10 @@ for i in range(param['first_sim'], param['n_scen'] + 1):
                                          dimensions)
 
     flight_fieldset = FieldSet.from_data(data = {'U': fly_field['u'],
-                                                 'V': fly_field['v']},
-                                         dimensions = {'lon': fly_field['lon'],
-                                                       'lat': fly_field['lat']})
+                                                  'V': fly_field['v']},
+                                          dimensions = {'lon': fly_field['lon'],
+                                                        'lat': fly_field['lat']},
+                                          allow_time_extrapolation=True)
 
     fieldset = FieldSet(U=wind_fieldset.U+flight_fieldset.U,
                         V=wind_fieldset.V+flight_fieldset.V)
@@ -224,26 +230,26 @@ for i in range(param['first_sim'], param['n_scen'] + 1):
     # Create particleset
     if i == 0:
         pset = ParticleSet.from_list(fieldset=fieldset,
-                                     pclass=arcticTern,
+                                     pclass=ArcticTern,
                                      lon = release['lon']['hist'],
                                      lat = release['lat']['hist'],
                                      time = release['time']['hist'])
-        traj_file = fh['traj_hist']
+        traj_fh = fh['traj_hist']
     else:
         pset = ParticleSet.from_list(fieldset=fieldset,
-                                     pclass=arcticTern,
+                                     pclass=ArcticTern,
                                      lon = release['lon']['scen'],
                                      lat = release['lat']['scen'],
                                      time = release['time']['scen'])
-        traj_file = fh['traj_scen'][i-1]
+        traj_fh = fh['traj_scen'][i-1]
 
     if param['mode'] == 'traj':
-        traj_file = pset.ParticleFile(name=traj_file,
+        traj_file = pset.ParticleFile(name=traj_fh,
                                       outputdt=param['out_dt'],
                                       write_ondelete=False)
 
     elif param['mode'] == 'time':
-        traj_file = pset.ParticleFile(name=traj_file,
+        traj_file = pset.ParticleFile(name=traj_fh,
                                       write_ondelete=True)
     else:
         raise NotImplementedError('Mode not understood!')
@@ -251,19 +257,23 @@ for i in range(param['first_sim'], param['n_scen'] + 1):
     # Run the simulation
     print('Set-up complete!')
     print('Releasing the birds!')
+
+    Kernels = (pset.Kernel(AdvectionRK4Tern) +
+               pset.Kernel(TernTools))
+
+    param['run_time']['hist'] = 86400
+
     if i == 0:
-        pset.execute((pset.Kernel(AdvectionRK4) +
-                      pset.Kernel(fly)),
+        pset.execute(Kernels,
                      runtime=param['run_time']['hist'],
                      dt = param['parcels_dt'],
-                     recovery={ErrorCode.ErrorOutOfBounds: deleteParticle},
+                     #recovery={ErrorCode.ErrorOutOfBounds: DeleteParticle},
                      output_file=traj_file)
     else:
-        pset.execute((pset.Kernel(AdvectionRK4) +
-                      pset.Kernel(fly)),
+        pset.execute(Kernels,
                      runtime=param['run_time']['scen'],
                      dt = param['parcels_dt'],
-                     recovery={ErrorCode.ErrorOutOfBounds: deleteParticle},
+                     recovery={ErrorCode.ErrorOutOfBounds: DeleteParticle},
                      output_file=traj_file)
 
     print('')
@@ -280,4 +290,8 @@ for i in range(param['first_sim'], param['n_scen'] + 1):
     else:
         print('Simulations complete!')
         print('The terns will miss you!')
+
+    from parcels import plotTrajectoriesFile
+
+    plotTrajectoriesFile(traj_fh)
 
