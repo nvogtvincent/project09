@@ -11,23 +11,20 @@ import os
 from parcels import (FieldSet, ParticleSet, JITParticle, ErrorCode, Variable)
 from netCDF4 import Dataset, num2date
 from datetime import timedelta, datetime
+from sys import argv
 
 ##############################################################################
 # DIRECTORIES & PARAMETERS                                                   #
 ##############################################################################
 
-dirs  = {'script': os.path.dirname(os.path.realpath(__file__)),
-         'model': os.path.dirname(os.path.realpath(__file__)) + '/MODEL_DATA/',
-         'traj': os.path.dirname(os.path.realpath(__file__)) + '/TRAJ_DATA/'}
-
-param = {'model_name'        : 'UKESM1-0-LL',
+param = {'model_name'        : argv[1],
          'scenarios'         : ['SSP245',
                                 'SSP585'],
 
          'release_start_day' : 80,
          'release_end_day'   : 100,
          'number_of_releases': 3,
-         'terns_per_release' : 2,
+         'terns_per_release' : 400,
          'release_lat'       : -70.,
          'release_lon_range' : [-50., -10.],       # [min, max]
          'target_lat'        : 60.,
@@ -36,13 +33,19 @@ param = {'model_name'        : 'UKESM1-0-LL',
          'fly_frac'          : 0.6,                # Fraction of day in flight
          'mode'              : 'traj'   ,          # See notes below
          'parcels_dt'        : timedelta(hours=1), # Parcels solver dt
-         'out_dt'            : timedelta(hours=24),  # Only used if mode == traj
+         'out_dt'            : timedelta(hours=12),  # Only used if mode == traj
          'var_name'          : ['uas', 'vas'],     # [zonal, meridional]
          'coordinate_name'   : ['lon', 'lat'],     # [lon, lat]
 
          'debug'             : False,              # Toggle to skip simulations
          'first_sim'         : 1                   # Only used if debug == True
          }
+
+dirs  = {'script': os.path.dirname(os.path.realpath(__file__)),
+         'model': os.path.dirname(os.path.realpath(__file__)) + '/MODEL_DATA/' + param['model_name'] + '/',
+         'traj': os.path.dirname(os.path.realpath(__file__)) + '/TRAJ_DATA/'}
+
+
 
 # MODE NOTES:
 # 'traj' : Full trajectory is recorded
@@ -141,8 +144,10 @@ fly_field = tm.genTargetField(param['target_lon'],
 ##############################################################################
 
 class ArcticTern(JITParticle):
-    flight_time = Variable('flight_time', dtype=np.float32, initial=0.)
-    release_time = Variable('release_time', dtype=np.int32, initial=0.)
+    flight_time = Variable('flight_time', dtype=np.float32, initial=0.,
+                           to_write='once')
+    release_time = Variable('release_time', dtype=np.int32, initial=0.,
+                            to_write='once')
     time_of_day = Variable('time_of_day', dtype=np.float32, initial=0.,
                            to_write=False)
 
