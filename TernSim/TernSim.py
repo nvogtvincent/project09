@@ -24,7 +24,7 @@ param = {'model_name'        : argv[1],
          'release_start_day' : 80,
          'release_end_day'   : 100,
          'number_of_releases': 3,
-         'terns_per_release' : 400,
+         'terns_per_release' : 2,
          'release_lat'       : -70.,
          'release_lon_range' : [-50., -10.],       # [min, max]
          'target_lat'        : 60.,
@@ -146,8 +146,6 @@ fly_field = tm.genTargetField(param['target_lon'],
 class ArcticTern(JITParticle):
     flight_time = Variable('flight_time', dtype=np.float32, initial=0.,
                            to_write='once')
-    release_time = Variable('release_time', dtype=np.int32, initial=0.,
-                            to_write='once')
     time_of_day = Variable('time_of_day', dtype=np.float32, initial=0.,
                            to_write=False)
 
@@ -156,10 +154,6 @@ def DeleteParticle(particle, fieldset, time):
     particle.delete()
 
 def TernTools(particle, fieldset, time):
-    # Find the year at the start
-    if particle.flight_time == 0.:
-        particle.release_time = time
-
     # Remove the tern if they reach the end latitude
     if particle.lat > fieldset.target_lat:
         particle.delete()
@@ -188,6 +182,10 @@ def AdvectionRK4Tern(particle, fieldset, time):
 ##############################################################################
 # RELEASE THE TERNS                                                          #
 ##############################################################################
+
+cs = {'time': ('time', 1),
+      'lat' : ('lat', 64),
+      'lon' : ('lon', 64)}
 
 if not param['debug']:
     param['first_sim'] = 0  # Set first simulation to default of debug = False
@@ -218,6 +216,7 @@ for i in range(param['first_sim'], param['n_scen'] + 1):
     wind_fieldset = FieldSet.from_netcdf(filenames,
                                          variables,
                                          dimensions)
+
 
     flight_fieldset = FieldSet.from_data(data = {'U': fly_field['u'],
                                                   'V': fly_field['v']},
@@ -293,6 +292,4 @@ for i in range(param['first_sim'], param['n_scen'] + 1):
     else:
         print('Simulations complete!')
         print('The terns will miss you!')
-
-    from parcels import plotTrajectoriesFile
 
