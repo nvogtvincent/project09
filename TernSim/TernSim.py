@@ -17,45 +17,54 @@ from sys import argv
 # DIRECTORIES & PARAMETERS                                                   #
 ##############################################################################
 
-param = {'model_name'        : argv[1],
+param = {'model_name'        : [],
          'scenarios'         : ['SSP245',
                                 'SSP585'],
+         'mode'              : 'traj',
 
          'release_start_day' : 80,
          'release_end_day'   : 100,
          'number_of_releases': 3,
-         'terns_per_release' : 2,
+         'terns_per_release' : 100,
          'release_lat'       : -70.,
          'release_lon_range' : [-50., -10.],       # [min, max]
          'target_lat'        : 60.,
          'target_lon'        : -20.,
          'airspeed'          : 10.,                # (m s-1)
          'fly_frac'          : 0.6,                # Fraction of day in flight
-         'mode'              : 'traj'   ,          # See notes below
          'parcels_dt'        : timedelta(hours=1), # Parcels solver dt
-         'out_dt'            : timedelta(hours=12),  # Only used if mode == traj
+         'out_dt'            : timedelta(hours=12),# Only used if mode == traj
          'var_name'          : ['uas', 'vas'],     # [zonal, meridional]
          'coordinate_name'   : ['lon', 'lat'],     # [lon, lat]
 
-         'debug'             : False,              # Toggle to skip simulations
+         'debug'             : True,               # Toggle to skip simulations
          'first_sim'         : 1                   # Only used if debug == True
          }
+
+# Ask for model name if not given
+try:
+    param['model_name'] = argv[1]
+except:
+    param['model_name'] = input('Enter model name...')
 
 dirs  = {'script': os.path.dirname(os.path.realpath(__file__)),
          'model': os.path.dirname(os.path.realpath(__file__)) + '/MODEL_DATA/' + param['model_name'] + '/',
          'traj': os.path.dirname(os.path.realpath(__file__)) + '/TRAJ_DATA/'}
 
-
-
 # MODE NOTES:
 # 'traj' : Full trajectory is recorded
 # 'time' : Only time to reach destination is recorded
+
 ##############################################################################
 # PROCESS INPUTS                                                             #
 ##############################################################################
 
 print('Processing inputs...')
 print('')
+
+# CHECK MODE IS VALID
+if not param['mode'] in ['traj', 'time']:
+    raise NotImplementedError('Mode not understood!')
 
 # FIND FILE NAMES
 param['n_scen'] = len(param['scenarios'])
@@ -79,7 +88,7 @@ fh['traj_hist'] = dirs['traj'] + param['model_name'] + '_HISTORICAL_TRAJ.nc'
 fh['traj_scen'] = []
 
 for i in range(param['n_scen']):
-    fh['traj_scen'].append(dirs['model'] + param['model_name'] + '_' +
+    fh['traj_scen'].append(dirs['traj'] + param['model_name'] + '_' +
                            param['scenarios'][i] + '_TRAJ.nc')
 
 
@@ -143,11 +152,19 @@ fly_field = tm.genTargetField(param['target_lon'],
 # TERN KERNELS                                                               #
 ##############################################################################
 
-class ArcticTern(JITParticle):
+class ArcticTern_TRAJ(JITParticle):
     flight_time = Variable('flight_time', dtype=np.float32, initial=0.,
-                           to_write='once')
+                           to_write=False)
     time_of_day = Variable('time_of_day', dtype=np.float32, initial=0.,
                            to_write=False)
+
+class ArcticTern_TIME(JITParticle):
+    flight_time = Variable('flight_time', dtype=np.float32, initial=0.,
+                           to_write=True)
+    time_of_day = Variable('time_of_day', dtype=np.float32, initial=0.,
+                           to_write=False)
+    start_time  = Variable('start_time', dtype=np.int32, initial=0,
+                           to_write=True)
 
 def DeleteParticle(particle, fieldset, time):
     #  Recovery kernel to delete a particle if it leaves the domain
@@ -231,20 +248,34 @@ for i in range(param['first_sim'], param['n_scen'] + 1):
     fieldset.add_constant('target_lat', param['target_lat'])
     fieldset.add_constant('night_time', 86400.*param['fly_frac'])
 
-    # Create particleset
+    # Create particleset (dpeending on mode and hist/scen)
     if i == 0:
-        pset = ParticleSet.from_list(fieldset=fieldset,
-                                     pclass=ArcticTern,
-                                     lon = release['lon']['hist'],
-                                     lat = release['lat']['hist'],
-                                     time = release['time']['hist'])
+        if param['mode'] == 'traj':
+            pset = ParticleSet.from_list(fieldset=fieldset,
+                                         pclass=ArcticTern_TRAJ,
+                                         lon = release['lon']['hist'],
+                                         lat = release['lat']['hist'],
+                                         time = release['time']['hist'])
+        else:
+            pset = ParticleSet.from_list(fieldset=fieldset,
+                                         pclass=ArcticTern_TIME,
+                                         lon = release['lon']['hist'],
+                                         lat = release['lat']['hist'],
+                                         time = release['time']['hist'])
         traj_fh = fh['traj_hist']
     else:
-        pset = ParticleSet.from_list(fieldset=fieldset,
-                                     pclass=ArcticTern,
-                                     lon = release['lon']['scen'],
-                                     lat = release['lat']['scen'],
-                                     time = release['time']['scen'])
+        if param['mode'] == 'traj':
+            pset = ParticleSet.from_list(fieldset=fieldset,
+                                         pclass=ArcticTern_TRAJ,
+                                         lon = release['lon']['scen'],
+                                         lat = release['lat']['scen'],
+                                         time = release['time']['scen'])
+        else:
+            pset = ParticleSet.from_list(fieldset=fieldset,
+                                         pclass=ArcticTern_TIME,
+                                         lon = release['lon']['scen'],
+                                         lat = release['lat']['scen'],
+                                         time = release['time']['scen'])
         traj_fh = fh['traj_scen'][i-1]
 
     if param['mode'] == 'traj':
