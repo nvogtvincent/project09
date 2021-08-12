@@ -28,12 +28,14 @@ param = {'model_name'        : [],
          'terns_per_release' : 100,
          'release_lat'       : -70.,
          'release_lon_range' : [-50., -10.],       # [min, max]
-         'target_lat'        : 60.,
-         'target_lon'        : -20.,
+         'target_lat'        : 65.,                # Where terns fly to
+         'target_lon'        : -20.,               # Where terns fly to
+         'sink_lat'          : 60.,                # Where terns are removed
          'airspeed'          : 10.,                # (m s-1)
          'fly_frac'          : 0.6,                # Fraction of day in flight
          'parcels_dt'        : timedelta(hours=1), # Parcels solver dt
          'out_dt'            : timedelta(hours=12),# Only used if mode == traj
+
          'var_name'          : ['uas', 'vas'],     # [zonal, meridional]
          'coordinate_name'   : ['lon', 'lat'],     # [lon, lat]
 
@@ -172,7 +174,7 @@ def DeleteParticle(particle, fieldset, time):
 
 def TernTools(particle, fieldset, time):
     # Remove the tern if they reach the end latitude
-    if particle.lat > fieldset.target_lat:
+    if particle.lat > fieldset.sink_lat:
         particle.delete()
 
     # Update the particle age
@@ -245,7 +247,7 @@ for i in range(param['first_sim'], param['n_scen'] + 1):
                         V=wind_fieldset.V+flight_fieldset.V)
 
     # Add constants
-    fieldset.add_constant('target_lat', param['target_lat'])
+    fieldset.add_constant('sink_lat', param['sink_lat'])
     fieldset.add_constant('night_time', 86400.*param['fly_frac'])
 
     # Create particleset (dpeending on mode and hist/scen)
