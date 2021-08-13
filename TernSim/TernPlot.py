@@ -17,15 +17,17 @@ from netCDF4 import Dataset
 # DIRECTORIES & PARAMETERS                                                   #
 ##############################################################################
 
+### WARNING: INCONSISTENT BEHAVIOUR WHEN COMBINING HIST + SCEN
+
 # PARAMETERS
 param = {# Set these flags to True/False depending on whether inputs are used
-         'hist_avail'    : False,
-         'scen_avail'    : True,
+         'hist_avail'    : True,
+         'scen_avail'    : False,
 
          # Set these variables to the model/scenario names
          'model'         : 'UKESM1-0-LL',
          'scenario'      : 'SSP585',       # Ignored if scen_avail == False
-         'hist_fn'       : '',
+         'hist_fn'       : 'UKESM1-0-LL_HISTORICAL_TRAJ.nc',
          'scen_fn'       : 'UKESM1-0-LL_SSP585_TRAJ.nc',
 
          # Plotting variables
@@ -56,7 +58,43 @@ fh = {'hist': dirs['traj'] + param['model'] + '_HISTORICAL_TRAJ.nc',
       'fig' : dirs['figs'] + param['fig_fn']}
 
 
-### INSERT CODE HERE TO COMBINE THE TIME SERIES
+# COMBINE TIME SERIES IF NECESSARY
+if param['hist_avail']:
+    with Dataset(fh['hist'], mode='r') as nc:
+        data = {'lon' : np.array(nc.variables['lon'][:]),
+                'lat' : np.array(nc.variables['lat'][:]),
+                'time': np.array(nc.variables['time'][:], dtype=np.int64),}
+
+if param['scen_avail']:
+    if param['hist_avail']:
+        with Dataset(fh['scen'], mode='r') as nc:
+            # Firstly make sure that arrays fit together
+            hist_shape = np.shape(data['lon'])
+            scen_shape = np.shape(np.array(nc.variables['lon'][:]))
+
+            template   = np.zeros((hist_shape[0] + scen_shape[0],
+                                   np.max((hist_shape[1], scen_shape[1]))))
+            template[:] = np.nan
+
+            template_ = np.copy(template)
+            template_[:hist_shape[0], :hist_shape[1]] = data['lon']
+            template_[hist_shape[0]:, :scen_shape[1]] = np.array(nc.variables['lon'][:])
+            data['lon'] = template_
+
+            template_ = np.copy(template)
+            template_[:hist_shape[0], :hist_shape[1]] = data['lat']
+            template_[hist_shape[0]:, :scen_shape[1]] = np.array(nc.variables['lat'][:])
+            data['lat'] = template_
+
+            template_ = np.copy(template)
+            template_[:hist_shape[0], :hist_shape[1]] = data['time']
+            template_[hist_shape[0]:, :scen_shape[1]] = np.array(nc.variables['time'][:])
+            data['time'] = template_
+    else:
+        with Dataset(fh['scen'], mode='r') as nc:
+            data = {'lon' : np.array(nc.variables['lon'][:]),
+                    'lat' : np.array(nc.variables['lat'][:]),
+                    'time': np.array(nc.variables['time'][:], dtype=np.int64),}
 
 ##############################################################################
 # HISTOGRAM                                                                  #
@@ -65,13 +103,6 @@ fh = {'hist': dirs['traj'] + param['model'] + '_HISTORICAL_TRAJ.nc',
 print('Creating histogram...')
 print('')
 
-# Load data
-with Dataset(fh['scen'], mode='r') as nc:
-    data = {'lon' : np.array(nc.variables['lon'][:]),
-            'lat' : np.array(nc.variables['lat'][:]),
-            'time': np.array(nc.variables['time'][:], dtype=np.int64),}
-
-# Convert the starting times to years
 # 1. Set the starting year
 param['s_year'] = '1850' if param['hist_avail'] else '2015'
 param['s_year'] = np.datetime64(param['s_year'] + '-01-01')

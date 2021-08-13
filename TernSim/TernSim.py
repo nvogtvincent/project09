@@ -25,16 +25,16 @@ param = {'model_name'        : [],
          'release_start_day' : 80,
          'release_end_day'   : 100,
          'number_of_releases': 3,
-         'terns_per_release' : 100,
+         'terns_per_release' : 400,
          'release_lat'       : -70.,
-         'release_lon_range' : [-50., -10.],       # [min, max]
+         'release_lon_range' : [-60., -20.],       # [min, max]
          'target_lat'        : 65.,                # Where terns fly to
          'target_lon'        : -20.,               # Where terns fly to
          'sink_lat'          : 60.,                # Where terns are removed
          'airspeed'          : 10.,                # (m s-1)
          'fly_frac'          : 0.6,                # Fraction of day in flight
          'parcels_dt'        : timedelta(hours=1), # Parcels solver dt
-         'out_dt'            : timedelta(hours=12),# Only used if mode == traj
+         'out_dt'            : timedelta(hours=6),# Only used if mode == traj
 
          'var_name'          : ['uas', 'vas'],     # [zonal, meridional]
          'coordinate_name'   : ['lon', 'lat'],     # [lon, lat]
