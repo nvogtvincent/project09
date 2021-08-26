@@ -24,6 +24,7 @@ param = {'model_name'        : [],
 
          'release_start_day' : 80,
          'release_end_day'   : 100,
+
          'number_of_releases': 3,
          'terns_per_release' : 400,
          'release_lat'       : -70.,
@@ -39,8 +40,8 @@ param = {'model_name'        : [],
          'var_name'          : ['uas', 'vas'],     # [zonal, meridional]
          'coordinate_name'   : ['lon', 'lat'],     # [lon, lat]
 
-         'debug'             : True,               # Toggle to skip simulations
-         'first_sim'         : 1                   # Only used if debug == True
+         'debug'             : False,               # Toggle to skip simulations
+         'first_sim'         : 0                   # Only used if debug == True
          }
 
 # Ask for model name if not given
@@ -120,11 +121,13 @@ with Dataset(fh['u_hist'], mode='r') as nc:
                                      month = 1,
                                      day   = 1)).total_seconds()
 
-    param['endtime'] = {'hist' : (param['Yend']['hist'] -
-                                   param['Ystart']['hist'] + 1)}
-    param['endtime']['hist'] *= 3600*24*360
+    param['endtime'] = {'hist' : (num2date(nc.variables['time'][-1],
+                                           nc.variables['time'].units,
+                                           calendar=param['calendar']) -
+                                  num2date(nc.variables['time'][0],
+                                           nc.variables['time'].units,
+                                           calendar=param['calendar'])).total_seconds()}
     param['endtime']['hist'] -= 4*param['time_offset']
-    param['endtime']['hist'] = timedelta(seconds=param['endtime']['hist']).total_seconds()
 
 with Dataset(fh['u_scen'][0], mode='r') as nc:
     param['Ystart']['scen'] = num2date(nc.variables['time'][0],
@@ -135,11 +138,13 @@ with Dataset(fh['u_scen'][0], mode='r') as nc:
                                        nc.variables['time'].units,
                                        calendar=param['calendar']).year
 
-    param['endtime']['scen'] = (param['Yend']['scen'] -
-                                 param['Ystart']['scen'] + 1)
-    param['endtime']['scen'] *= 3600*24*360
+    param['endtime']['scen'] = (num2date(nc.variables['time'][-1],
+                                         nc.variables['time'].units,
+                                         calendar=param['calendar']) -
+                                num2date(nc.variables['time'][0],
+                                         nc.variables['time'].units,
+                                         calendar=param['calendar'])).total_seconds()
     param['endtime']['scen'] -= 4*param['time_offset']
-    param['endtime']['scen'] = timedelta(seconds=param['endtime']['scen']).total_seconds()
 
 release = tm.prepare_release(release, param)
 

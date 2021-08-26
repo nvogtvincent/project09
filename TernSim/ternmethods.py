@@ -8,12 +8,18 @@ Methods for TernSim
 import numpy as np
 from geographiclib.geodesic import Geodesic
 from netCDF4 import Dataset
+from datetime import timedelta, datetime
 import os
 
 
 def prepare_release(release, param):
-    if param['calendar'] != '360_day':
-        raise NotImplementedError('This calendar is not 360_day!')
+    # Use different strategies for 360_day vs Gregorian calendars
+    if param['calendar'] == 'proleptic_gregorian':
+        param['greg'] = True
+    elif param['calendar'] == '360_day':
+        param['greg'] = False
+    else:
+        raise NotImplementedError('This calendar is not understood!')
 
     # HISTORICAL RUN
     # Firstly generate the times in a year
@@ -23,20 +29,32 @@ def prepare_release(release, param):
     release_times *= 24*3600    # Convert to seconds
 
     # Now generate year start times
-    release['time'] = {'hist': np.arange(param['Ystart']['hist'],
-                                         param['Yend']['hist'] + 1,
-                                         1)}
-    release['time']['hist'] -= param['Ystart']['hist']
-    release['time']['hist'] *= 24*3600*360  # Convert to seconds
+    year_list = np.arange(param['Ystart']['hist'],
+                          param['Yend']['hist'] + 1,
+                          1)
+
+    if param['greg']:
+        release['time'] = {'hist' : np.array([])}
+        for year in year_list:
+            # Calculating the start time of every year with Gregorian calendar
+            release['time']['hist'] = np.append(release['time']['hist'],
+                                                (datetime(year=year,
+                                                          month=1,
+                                                          day=1) -
+                                                 datetime(year=param['Ystart']['hist'],
+                                                          month=1,
+                                                          day=1)).total_seconds())
+    else:
+        release['time'] = {'hist' : (year_list-year_list[0])*3600*24*360}
+
+
+    release['time']['hist'] -= param['time_offset']
 
     # Now combine
     release['time']['hist'] = (np.tile(release_times,
                                        reps=len(release['time']['hist'])) +
                                np.repeat(release['time']['hist'],
                                          repeats=len(release_times)))
-
-    # Now add the offset (since parcels makes t=0 = first frame, not 00:00)
-    release['time']['hist'] -= param['time_offset']
 
     # Now multiply by the number of particles per release
     release['lon']['hist'] = np.tile(release['lon']['basis'],
@@ -48,11 +66,25 @@ def prepare_release(release, param):
 
     # SCENARIO RUNS
     # Now generate year start times
-    release['time']['scen'] = np.arange(param['Ystart']['scen'],
-                                        param['Yend']['scen'] + 1,
-                                        1)
-    release['time']['scen'] -= param['Ystart']['scen']
-    release['time']['scen'] *= 24*3600*360  # Convert to seconds
+    year_list = np.arange(param['Ystart']['scen'],
+                          param['Yend']['scen'] + 1,
+                          1)
+
+    if param['greg']:
+        release['time']['scen'] = np.array([])
+        for year in year_list:
+            # Calculating the start time of every year with Gregorian calendar
+            release['time']['scen'] = np.append(release['time']['scen'],
+                                                (datetime(year=year,
+                                                          month=1,
+                                                          day=1) -
+                                                 datetime(year=param['Ystart']['scen'],
+                                                          month=1,
+                                                          day=1)).total_seconds())
+    else:
+        release['time'] = {'hist' : (year_list-year_list[0])*3600*24*360}
+
+    release['time']['scen'] -= param['time_offset']
 
     # Now combine
     release['time']['scen'] = (np.tile(release_times,
@@ -60,8 +92,6 @@ def prepare_release(release, param):
                                np.repeat(release['time']['scen'],
                                          repeats=len(release_times)))
 
-    # Now add the offset (since parcels makes t=0 = first frame, not 00:00)
-    release['time']['scen'] -= param['time_offset']
 
     # Now multiply by the number of particles per release
     release['lon']['scen'] = np.tile(release['lon']['basis'],
